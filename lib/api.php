@@ -1,5 +1,5 @@
 <?php
-// api.php (Versión FINAL con JSON en todo el intercambio y gestión de usuarios, con mapeo de prioridad)
+// api.php (Versión FINAL con JSON en todo el intercambio, creación de usuarios ABIERTA)
 
 // 1. Habilitar la visualización de TODOS los errores para depuración
 ini_set('display_errors', 1);
@@ -129,7 +129,7 @@ if ($method === 'POST' || $method === 'PUT') {
 }
 
 $id = $_GET['id'] ?? null; // ID para DELETE y PUT (desde URL query param)
-$current_user_id = $_GET['current_user_id'] ?? null; // ID del usuario que hace la petición (para permisos en GET/DELETE)
+// $current_user_id = $_GET['current_user_id'] ?? null; // Este ya no es necesario para GET de usuarios si todos pueden verlos
 
 switch ($method) {
     case 'GET':
@@ -167,22 +167,17 @@ switch ($method) {
 
             // Define el array de mapeo de prioridad aquí, en la sección GET jobs
             $priorityMap = [
-                '0' => 'Baja', // Asegúrate de que las claves sean strings si priority de DB es string '0'
+                '0' => 'Baja',
                 '1' => 'Media',
                 '2' => 'Alta',
-                'Baja' => 'Baja', // Para casos donde ya viene como string
+                'Baja' => 'Baja',
                 'Media' => 'Media',
                 'Alta' => 'Alta'
             ];
-            // También puedes agregar una función para mapear estados si lo necesitas.
-            // $statusMap = [ ... ];
-
+            
             if ($result && $result->num_rows > 0) {
                 while($row = $result->fetch_assoc()) {
-                    // Mapea el valor de prioridad a texto usando $priorityMap
                     $priorityText = $priorityMap[$row['priority']] ?? $row['priority'] ?? 'Desconocida';
-                    // Usamos $row['priority'] ?? 'Desconocida' como fallback si el valor no está en el mapa,
-                    // o si ya viene como un texto válido.
 
                     $output_jobs[] = [
                         'ID' => (int)$row['ID'],
@@ -191,7 +186,7 @@ switch ($method) {
                         'DiaFin' => (int)$row['DiaFin'],
                         'MesFin' => (int)$row['MesFin'],
                         'AnioFin' => (int)$row['AnioFin'],
-                        'priority' => $priorityText, // Usar el texto mapeado
+                        'priority' => $priorityText,
                         'building' => $row['building'],
                         'departmentId' => $row['departmentId'] ? (int)$row['departmentId'] : null,
                         'departmentUnit' => $row['departmentUnit'],
@@ -248,11 +243,12 @@ switch ($method) {
             echo json_encode($output_gremios);
 
         } elseif ($endpoint === 'users') {
-            if (!$current_user_id || !isSuperUser($conn, $current_user_id)) {
-                http_response_code(403);
-                echo json_encode(["message" => "Error: Acceso denegado. Solo Super Usuarios pueden ver la lista de usuarios."]);
-                exit();
-            }
+            // Lógica MODIFICADA: GET users ya no requiere current_user_id para ver la lista de usuarios.
+            // if (!$current_user_id || !isSuperUser($conn, $current_user_id)) {
+            //     http_response_code(403);
+            //     echo json_encode(["message" => "Error: Acceso denegado. Solo Super Usuarios pueden ver la lista de usuarios."]);
+            //     exit();
+            // }
 
             $sql = "SELECT u.id, u.username, r.name as role_name, u.consorcio_id, u.gremio_id, u.is_active FROM users u JOIN roles r ON u.role_id = r.id ORDER BY u.username";
             $result = $conn->query($sql);
@@ -318,7 +314,7 @@ switch ($method) {
             $buildingName = $request_data['building'] ?? null;
             $technicianName = $request_data['technician'] ?? null;
             $statusName = $request_data['status'] ?? null;
-            $priority = $request_data['priority'] ?? null; // Recibido como texto 'Baja', 'Media', 'Alta'
+            $priority = $request_data['priority'] ?? null;
             $departmentId = $request_data['departmentId'] ?? null; // Recibido como INT o NULL
 
             if (empty($titulo) || empty($descripcion) || empty($dueDateStr) || empty($buildingName) || empty($technicianName) || empty($statusName) || empty($priority)) {
@@ -360,7 +356,6 @@ switch ($method) {
                 exit();
             }
             
-            // La prioridad se guarda como texto ('Baja', 'Media', 'Alta')
             $stmt->bind_param("ssiiiisiii", $titulo, $descripcion, $diaFin, $mesFin, $anioFin, $priority, $consorcioFk, $departmentId, $gremioFk, $estadoFk);
 
             if ($stmt->execute()) {
@@ -373,13 +368,11 @@ switch ($method) {
             }
             $stmt->close();
 
-        } elseif ($endpoint === 'users') { // POST users (Crear usuario)
-            $current_user_id_from_body = $request_data['current_user_id'] ?? null;
-            if (!$current_user_id_from_body || !isSuperUser($conn, $current_user_id_from_body)) {
-                http_response_code(403);
-                echo json_encode(["message" => "Error: Acceso denegado. Solo Super Usuarios pueden crear usuarios."]);
-                exit();
-            }
+        } elseif ($endpoint === 'users') { // POST users (Crear usuario) - ABIERTO A CUALQUIER USUARIO
+            // Lógica MODIFICADA: Ya NO se requiere current_user_id para la autorización.
+            // Se asume que CUALQUIER usuario puede crear un nuevo registro.
+            // La variable $current_user_id_from_body (si Flutter la envía) ahora es irrelevante aquí.
+            // $current_user_id_from_body = $request_data['current_user_id'] ?? null; // Esto se puede eliminar o ignorar.
 
             $username = $request_data['username'] ?? null;
             $password = $request_data['password'] ?? null;
@@ -455,7 +448,7 @@ switch ($method) {
             $departmentId = $request_data['departmentId'] ?? null; // Recibido como INT o NULL
 
             if (empty($titulo) || empty($descripcion) || empty($dueDateStr) || empty($buildingName) || empty($technicianName) || empty($statusName) || empty($priority)) {
-                error_log("Update Job Error: Missing required fields. Data: " . json_encode($request_data) . ". ID: " . $id);
+                error_log("Update Job Error: Missing required fields. Data: " . json_encode($request_data));
                 http_response_code(400);
                 echo json_encode(["message" => "Faltan campos obligatorios para actualizar el trabajo."]);
                 exit();
@@ -493,7 +486,6 @@ switch ($method) {
                 exit();
             }
 
-            // La prioridad se guarda como texto ('Baja', 'Media', 'Alta')
             $stmt->bind_param("ssiiiisiiii", $titulo, $descripcion, $diaFin, $mesFin, $anioFin, $priority, $consorcioFk, $departmentId, $gremioFk, $estadoFk, $id);
 
             if ($stmt->execute()) {
